@@ -114,13 +114,11 @@ public class ConnectorFreenet extends Connector {
 	 * @param client
 	 *            {@link DefaultHttpClient}
 	 * @return Session ID
-	 * @throws WebSMSException
-	 *             WebSMSException
 	 * @throws IOException
 	 *             IOException
 	 */
 	private String login(final Context context, final DefaultHttpClient client)
-			throws WebSMSException, IOException {
+			throws IOException {
 		HttpResponse response = client.execute(new HttpGet(
 				"http://email.mobil.freenet.de/"));
 
@@ -193,11 +191,9 @@ public class ConnectorFreenet extends Connector {
 	 *            Context
 	 * @param command
 	 *            ConnectorCommand
-	 * @throws WebSMSException
-	 *             WebSMSException
 	 */
-	private void sendData(final Context context, final ConnectorCommand command)
-			throws WebSMSException {
+	private void sendData(final Context context, // .
+			final ConnectorCommand command) {
 		// do IO
 		try { // get Connection
 			final DefaultHttpClient client = new DefaultHttpClient();
@@ -238,7 +234,7 @@ public class ConnectorFreenet extends Connector {
 			HttpResponse response = Utils.getHttpClient(URL_SEND
 					+ "?SIS_param=" + sessionID
 					+ "&aktion=sms_write&zielrufnummer=&anrede=Herr&nachname=",
-					null, d, null, null);
+					null, d, null, null, false);
 			int resp = response.getStatusLine().getStatusCode();
 			if (resp != HttpURLConnection.HTTP_OK) {
 				throw new WebSMSException(context, R.string.error_http, " "
@@ -257,8 +253,7 @@ public class ConnectorFreenet extends Connector {
 	 * {@inheritDoc}
 	 */
 	@Override
-	protected final void doUpdate(final Context context, final Intent intent)
-			throws WebSMSException {
+	protected final void doUpdate(final Context context, final Intent intent) {
 		this.sendData(context, new ConnectorCommand(intent));
 	}
 
@@ -266,8 +261,7 @@ public class ConnectorFreenet extends Connector {
 	 * {@inheritDoc}
 	 */
 	@Override
-	protected final void doSend(final Context context, final Intent intent)
-			throws WebSMSException {
+	protected final void doSend(final Context context, final Intent intent) {
 		this.sendData(context, new ConnectorCommand(intent));
 	}
 }
