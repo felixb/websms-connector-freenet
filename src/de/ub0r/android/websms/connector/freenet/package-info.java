@@ -20,8 +20,8 @@
 /**
  * WebSMS Connector: Freenet. Freenet connector deployed as separate apk.
  * 
- * @version 3.0
- * @author flx
+ * @version 3.01
+ * @author dbl, flx
  */
 package de.ub0r.android.websms.connector.freenet;
 

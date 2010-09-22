@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 Felix Bechstein
+ * Copyright (C) 2010 Dirk Bliesener, Felix Bechstein
  * 
  * This file is part of WebSMS.
  * 
@@ -18,22 +18,15 @@
  */
 package de.ub0r.android.websms.connector.freenet;
 
-import java.io.IOException;
+import java.io.InputStream;
 import java.net.HttpURLConnection;
-import java.net.URI;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
-import org.apache.http.Header;
 import org.apache.http.HttpResponse;
-import org.apache.http.client.RedirectHandler;
-import org.apache.http.client.entity.UrlEncodedFormEntity;
-import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPost;
-import org.apache.http.cookie.Cookie;
+import org.apache.http.entity.ByteArrayEntity;
 import org.apache.http.impl.client.DefaultHttpClient;
-import org.apache.http.message.BasicNameValuePair;
-import org.apache.http.protocol.HttpContext;
 
 import android.content.Context;
 import android.content.Intent;
@@ -48,25 +41,47 @@ import de.ub0r.android.websms.connector.common.WebSMSException;
 import de.ub0r.android.websms.connector.common.ConnectorSpec.SubConnectorSpec;
 
 /**
- * AsyncTask to manage IO to Freenet.de API.
+ * AsyncTask to manage IO freenet.de Email Office XML connector
  * 
- * @author flx
+ * @author drkbli
  */
 public class ConnectorFreenet extends Connector {
 	/** Tag for output. */
 	private static final String TAG = "freenet";
 
-	/** Freenet.de Gateway URL for login. */
-	private static final String URL_LOGIN = "https://"
-			+ "e-tools.mobil.freenet.de/login.php3";
-	// "https://secure.freenet.de/etools.freenet.de/login.php3";
-	// "http://e-tools.freenet.de//freenetLogin.php3";
-	/** Freenet.de Gateway URL for send. */
-	private static final String URL_SEND = "http://"
-			+ "e-tools.freenet.de/sms.php3";
+	/** freenet.de Email Office XML connector URL. */
+	private static final String URL_EMO = "http://storage.freenet.de/sync/"
+			+ "remoteaccess/service/xml_emo_connector.php";
 
-	/** Static cookies. */
-	private static ArrayList<Cookie> staticCookies = new ArrayList<Cookie>();
+	/** secret identifier expected by the XML connector */
+	private static final String SEC = "8GPRTK42ER1_";
+	/** XML header template */
+	private static final String XH = "<?xml version=\"1.0\" encoding=\"utf-8\"?>";
+	/** server time command XML template */
+	private static final String TIME = XH
+			+ "<SMS_TIME>GetServerTime</SMS_TIME>";
+	/** autentication string XML template */
+	private static final String AUTH = "<Login><UserName>%s</UserName><AuthHash>%s</AuthHash></Login>";
+	/** sms quota (ballance) command XML template */
+	private static final String QUOTA = XH + "<SMS_QUOTA>" + AUTH
+			+ "</SMS_QUOTA>";
+	/** sms recipient XML template */
+	private static final String TO = "<Recipient><Id>%d</Id><Phone>%s</Phone></Recipient>";
+	/** sms command XML template */
+	private static final String SMS = XH + "<SMS><SMS_ID>%d</SMS_ID>" + AUTH
+			+ "<Recipients>%s</Recipients><Text><Line>%s</Line>"
+			+ "</Text><Options><SenderNr>%s</SenderNr>"
+			+ "<BlitzSMS>%d</BlitzSMS>" + "</Options></SMS>";
+	/** http client to access the XML connector */
+	private final DefaultHttpClient client = new DefaultHttpClient();
+	/** http response Buffer */
+	private final byte[] httpBuffer = new byte[64 * 1024];
+	/** RegExp to extract result from SMS_time command's response */
+	private final Pattern SMS_time = Pattern.compile("<SMS_time>([^<]+)<");
+	/** RegExp to extract result from SMS_quota command's response */
+	private final Pattern SMS_quota = Pattern.compile("<SMS_quota>([^<]+)<");
+	/** RegExp to extract result from SMS command's response */
+	private final Pattern StatusText = Pattern.compile("<StatusText>([^<]+)<");
 
 	/**
 	 * {@inheritDoc}
@@ -80,7 +95,10 @@ public class ConnectorFreenet extends Connector {
 		c.setCapabilities(ConnectorSpec.CAPABILITIES_UPDATE
 				| ConnectorSpec.CAPABILITIES_SEND
 				| ConnectorSpec.CAPABILITIES_PREFS);
-		c.addSubConnector(TAG, c.getName(), SubConnectorSpec.FEATURE_NONE);
+		c.addSubConnector(TAG, c.getName(),
+				SubConnectorSpec.FEATURE_MULTIRECIPIENTS
+						| SubConnectorSpec.FEATURE_FLASHSMS
+						| SubConnectorSpec.FEATURE_CUSTOMSENDER);
 		return c;
 	}
 
@@ -107,81 +125,69 @@ public class ConnectorFreenet extends Connector {
 	}
 
 	/**
-	 * Login to freenet.de.
+	 * send xml command send to freenet XML sms connector and return XML
+	 * response
 	 * 
 	 * @param context
-	 *            {@link Context}
-	 * @param client
-	 *            {@link DefaultHttpClient}
-	 * @return Session ID
-	 * @throws IOException
-	 *             IOException
+	 *            sms connector context
+	 * @param xml
+	 *            command to send to freenet XML sms connector
+	 * @return String contaning XML response
 	 */
-	private String login(final Context context, final DefaultHttpClient client)
-			throws IOException {
-		HttpResponse response = client.execute(new HttpGet(
-				"http://email.mobil.freenet.de/"));
-
-		int resp = response.getStatusLine().getStatusCode();
-		if (resp != HttpURLConnection.HTTP_OK) {
-			throw new WebSMSException(context, R.string.error_http, " " + resp);
+	private String sendXml(final Context context, final String xml) {
+		String resXml = null;
+		try {
+			// POST UTF-8 xml command to server
+			final HttpPost req = new HttpPost(URL_EMO);
+			req.setHeader("content-type", "text/xml");
+			final byte[] bytes = xml.getBytes("utf-8");
+			req.setEntity(new ByteArrayEntity(bytes));
+			final HttpResponse response = this.client.execute(req);
+			// check server status
+			final int resp = response.getStatusLine().getStatusCode();
+			if (resp != HttpURLConnection.HTTP_OK) {
+				throw new WebSMSException(context, R.string.error_http, " "
+						+ resp);
+			}
+			// parse XML response into HashMap
+			final InputStream in = response.getEntity().getContent();
+			final int cnt = in.read(this.httpBuffer);
+			if (cnt > 0) {
+				resXml = new String(this.httpBuffer, 0, cnt, "utf-8");
+			}
+			if (null == resXml) {
+				throw new WebSMSException(context, R.string.error_http,
+						"no XML from server");
+			}
+			// else {
+			// Log.d(TAG, resXml);
+			// }
+		} catch (Exception e) {
+			Log.e(TAG, "sendXml", e);
+			throw new WebSMSException(e.getMessage());
 		}
+		return resXml;
+	}
 
-		final SharedPreferences p = PreferenceManager
-				.getDefaultSharedPreferences(context);
-		final ArrayList<BasicNameValuePair> d = // .
-		new ArrayList<BasicNameValuePair>();
-		d.add(new BasicNameValuePair("callback",
-				"http://email.mobil.freenet.de/login/index.html"));
-		d.add(new BasicNameValuePair("returnto", ""));
-		d.add(new BasicNameValuePair("tplversion", ""));
-		d.add(new BasicNameValuePair("login", "action"));
-		d.add(new BasicNameValuePair("Login", "Login"));
-		d.add(new BasicNameValuePair("world", "bml_DE"));
-		d.add(new BasicNameValuePair("username", p.getString(
-				Preferences.PREFS_USER, "")));
-		d.add(new BasicNameValuePair("password", p.getString(
-				Preferences.PREFS_PASSWORD, "")));
-		Log.d(TAG, "---HTTP POST---");
-		Log.d(TAG, URL_LOGIN + " data: " + d);
-		Log.d(TAG, "---HTTP POST---");
-
-		HttpPost request = new HttpPost(URL_LOGIN);
-		request.setEntity(new UrlEncodedFormEntity(d));
-		request.setHeader("Referer", "http://email.mobil.freenet.de/");
-		response = client.execute(request);
-		List<Cookie> cookies = client.getCookieStore().getCookies();
-		int l = cookies.size();
-		Cookie c;
-		String ret = null;
-		for (int i = 0; i < l; i++) {
-			c = cookies.get(i);
-			if (c.getName().equals("SIS")) {
-				ret = c.getValue();
-				break;
+	/**
+	 * read sms time from server (needed for authentication and other subsequent
+	 * commands )
+	 * 
+	 * @param context
+	 *            sms connector context
+	 * @return server (unix) timestamp
+	 */
+	private String sms_time(final Context context) {
+		// Response:<SMS_TIME>...<SMS_time>1283337953</SMS_time></SMS_TIME>
+		String time = "";
+		final String dres = this.sendXml(context, TIME);
+		if (null != dres) {
+			final Matcher match = this.SMS_time.matcher(dres);
+			if (match.find()) {
+				time = match.group(1);
 			}
 		}
-		Log.d(TAG, "session id: " + ret);
-		if (ret == null) {
-			return null;
-		}
-		Log.d(TAG, "---HTTP GET---");
-		Log.d(TAG, "https://email.mobil.freenet.de/Email/View/SmsEdit");
-		Log.d(TAG, "---HTTP GET---");
-		response = client.execute(new HttpGet(
-				"https://email.mobil.freenet.de/Email/View/SmsEdit"));
-		if (resp != HttpURLConnection.HTTP_OK) {
-			throw new WebSMSException(context, R.string.error_http, " " + resp);
-		}
-
-		String htmlText = Utils.stream2str(response.getEntity().getContent());
-		Log.d(TAG, "---HTTP RESPONSE---");
-		for (Header h : response.getAllHeaders()) {
-			Log.d(TAG, "HEADER: " + h.getName() + ": " + h.getValue());
-		}
-		Log.d(TAG, htmlText);
-		Log.d(TAG, "---HTTP RESPONSE---");
-		return ret;
+		return time;
 	}
 
 	/**
@@ -192,59 +198,75 @@ public class ConnectorFreenet extends Connector {
 	 * @param command
 	 *            ConnectorCommand
 	 */
-	private void sendData(final Context context, // .
-			final ConnectorCommand command) {
-		// do IO
-		try { // get Connection
-			final DefaultHttpClient client = new DefaultHttpClient();
-			client.setRedirectHandler(new RedirectHandler() {
-				@Override
-				public boolean isRedirectRequested(final HttpResponse response,
-						final HttpContext context) {
-					return false;
-				}
-
-				@Override
-				public URI getLocationURI(final HttpResponse response,
-						final HttpContext context) {
-					return null;
-				}
-			});
-
-			final String sessionID = this.login(context, client);
-			final String text = command.getText();
-			if (text == null || text.length() == 0) {
-				return;
-			}
-
+	private void sendData(final Context context, final ConnectorCommand command) {
+		try {
+			// get server time and compute authHash
 			final ConnectorSpec cs = this.getSpec(context);
-			final SharedPreferences p = PreferenceManager
+			final SharedPreferences pref = PreferenceManager
 					.getDefaultSharedPreferences(context);
-			final ArrayList<BasicNameValuePair> d = // .
-			new ArrayList<BasicNameValuePair>();
-			d.add(new BasicNameValuePair("SIS_param", sessionID));
-			d.add(new BasicNameValuePair("nachname", ""));
-			d.add(new BasicNameValuePair("vorname", ""));
-			d.add(new BasicNameValuePair("vorwahl", "???")); // FIXME
-			d.add(new BasicNameValuePair("vorwahl", Utils
-					.getRecipientsNumber(command.getRecipients()[0]))); // FIXME
-			d.add(new BasicNameValuePair("smstext", text));
-			d.add(new BasicNameValuePair("aktion", "Senden"));
-
-			HttpResponse response = Utils.getHttpClient(URL_SEND
-					+ "?SIS_param=" + sessionID
-					+ "&aktion=sms_write&zielrufnummer=&anrede=Herr&nachname=",
-					null, d, null, null, false);
-			int resp = response.getStatusLine().getStatusCode();
-			if (resp != HttpURLConnection.HTTP_OK) {
-				throw new WebSMSException(context, R.string.error_http, " "
-						+ resp);
+			final String user = pref.getString(Preferences.PREFS_USER, "");
+			final String pwd = pref.getString(Preferences.PREFS_PASSWORD, "");
+			final String time = this.sms_time(context);
+			final String authHash = time
+					+ Utils.md5(Utils.md5(time + user) + SEC + Utils.md5(pwd));
+			if (command.getType() == ConnectorCommand.TYPE_UPDATE) {
+				// Response: <SMS_QUOTA>...<SMS_quota>120</SMS_quota>...
+				// <SMS_maxlength>160</SMS_maxlength>...</SMS_QUOTA>
+				final String dres = this.sendXml(context, String.format(QUOTA,
+						user, authHash));
+				String quota = "0";
+				if (null != dres) {
+					final Matcher match = this.SMS_quota.matcher(dres);
+					if (match.find()) {
+						quota = match.group(1);
+					}
+				}
+				cs.setBalance(quota);
+			} else if (command.getType() == ConnectorCommand.TYPE_SEND) {
+				final String text = command.getText();
+				if (text == null || text.length() == 0) {
+					return;
+				}
+				String sender = command.getCustomSender();
+				if (null == sender || 0 == sender.length()) {
+					sender = Utils.international2oldformat(Utils.getSender(
+							context, command.getDefSender()));
+				}
+				final String[] to = Utils.national2international(command
+						.getDefPrefix(), command.getRecipients());
+				// prepare sender elements
+				final StringBuffer toBuf = new StringBuffer();
+				for (int i = 0; i < to.length; i++) {
+					toBuf.append(String.format(TO, i, to[i]));
+				}
+				final short id = (short) (Math.random() * Short.MAX_VALUE);
+				final boolean flash = command.getFlashSMS();
+				// Response: <SMS>...<StatusText>OK</StatusText>...</SMS>
+				final String dres = this.sendXml(context, String.format(SMS,
+						id, user, authHash, toBuf.toString(), text, sender,
+						flash ? 1 : 0));
+				String code = "Unknown";
+				if (null != dres) {
+					final Matcher match = this.StatusText.matcher(dres);
+					if (match.find()) {
+						code = match.group(1);
+					}
+				}
+				if (!code.equalsIgnoreCase("OK")) {
+					throw new WebSMSException(context, R.string.error_server,
+							code);
+				}
+				final int smscnt = to.length
+						* (int) Math.ceil(text.length() / 160.0);
+				int bal = Integer.parseInt(cs.getBalance()) - smscnt;
+				if (bal < 0) {
+					bal = 0;
+				}
+				cs.setBalance("" + bal);
 			}
-			String htmlText = Utils.stream2str(
-					response.getEntity().getContent()).trim();
-			// TODO: parse html
+
 		} catch (Exception e) {
-			Log.e(TAG, null, e);
+			Log.e(TAG, "sendData", e);
 			throw new WebSMSException(e.getMessage());
 		}
 	}

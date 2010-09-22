@@ -1,0 +1,9 @@
+Bitte beachte folgende Besonderheiten der freenet Email Office SMS Connectors:
+
+Der freenet WebSMS Connector erlaubt die Extras 'FlashSMS' und 'Anderer Absender' (das kann eine beliebige Zeichenkette aus Buchstaben und Ziffern sein).
+
+Bei freenetMail Basic Accounts verwendet der freenet Server eine zufällige (und sich ändernde) Rufnummer als SMS-Absender. Das soll zur Nutzung bezahlter Produkte animieren ;)
+
+Das gemeldete SMS-Guthaben kann um +/-1 schwanken, wenn man schnell hintereinander das Guthaben abfragt. Dieses unerklärliche Verhalten liegt am Server und nicht am WebSMS Connector.
+
+  

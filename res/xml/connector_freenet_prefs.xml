@@ -19,7 +19,7 @@
 <PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
 	android:title="@string/connector_freenet_preferences">
 	<CheckBoxPreference android:key="enable_freenet"
-		android:title="@string/enable_freenet" />
+		android:title="@string/enable_freenet" android:summary="@string/freenet_basic_hint" />
 	<EditTextPreference android:key="user_freenet"
 		android:title="@string/username_" android:dialogTitle="@string/username_"
 		android:inputType="textEmailAddress" android:dependency="enable_freenet" />
