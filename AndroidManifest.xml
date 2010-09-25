@@ -17,8 +17,10 @@
 		not, see <http://www.gnu.org/licenses/>.
 	-->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-	package="de.ub0r.android.websms.connector.freenet" android:versionName="1.01" android:versionCode="1010">
-	<application android:label="@string/app_name" android:icon="@drawable/icon" android:debuggable="true">
+	package="de.ub0r.android.websms.connector.freenet" android:versionName="1.0.1"
+	android:versionCode="1013">
+	<application android:label="@string/app_name" android:icon="@drawable/icon"
+		android:debuggable="true">
 
 		<!--
 			This Activity is brought by the WebSMS Connector Plugin API. It shows
@@ -53,7 +55,10 @@
 			</intent-filter>
 		</receiver>
 	</application>
-	<uses-sdk android:minSdkVersion="3"/>
+	<uses-sdk android:minSdkVersion="3" android:targetSdkVersion="8" />
+	<supports-screens android:smallScreens="true"
+		android:normalScreens="true" android:largeScreens="true"
+		android:anyDensity="true" />
 	<uses-permission android:name="android.permission.INTERNET" />
 	<!--
 		WAKE_LOCK needed to make sure, sms are send even if user sends device
