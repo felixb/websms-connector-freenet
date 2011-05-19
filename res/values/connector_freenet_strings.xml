@@ -18,7 +18,7 @@
 	-->
 <resources>
 	<string name="app_name">WebSMS Connector: freenet</string>
-	<string name="app_version">1.1</string>
+	<string name="app_version">1.2</string>
 	<string name="connector_freenet_name">freenet</string>
 	<string name="connector_freenet_author">Dirk Bliesener &lt;dbl@xyz.de&gt;, Felix Bechstein
 		&lt;f@ub0r.de&gt;</string>
