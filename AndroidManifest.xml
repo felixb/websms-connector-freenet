@@ -19,8 +19,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
 	package="de.ub0r.android.websms.connector.freenet" android:versionName="1.1"
 	android:versionCode="1015">
-	<application android:label="@string/app_name" android:icon="@drawable/icon"
-		android:debuggable="true">
+	<application android:label="@string/app_name" android:icon="@drawable/icon">
 
 		<!--
 			This Activity is brought by the WebSMS Connector Plugin API. It shows
@@ -59,6 +58,8 @@
 	<supports-screens android:smallScreens="true"
 		android:normalScreens="true" android:largeScreens="true"
 		android:anyDensity="true" />
+	<uses-feature android:name="android.hardware.touchscreen"
+		android:required="false" />
 	<uses-permission android:name="android.permission.INTERNET" />
 	<!--
 		WAKE_LOCK needed to make sure, sms are send even if user sends device
